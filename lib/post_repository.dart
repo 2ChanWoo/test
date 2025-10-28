@@ -21,9 +21,12 @@ class PostRepository {
       final List<dynamic> data = response.data;
       return data.map((postJson) => Post.fromJson(postJson as Map<String, dynamic>)).toList();
     } on DioError catch (e) {
-      // Dio 에러 처리
-      // 여기서는 간단히 예외를 다시 던지지만, 실제 앱에서는 사용자에게 보여줄 에러 메시지를 파싱하는 등의 처리를 합니다.
-      throw Exception('Failed to load posts: $e');
+      // DioError가 발생하면 ApiException으로 변환하여 다시 던집니다.
+      // 인터셉터에서 이미 변환했으므로 e.error는 ApiException 타입일 것입니다.
+      if (e.error is ApiException) {
+        throw e.error as ApiException;
+      }
+      throw ApiException.fromDioError(e);
     }
   }
 }
