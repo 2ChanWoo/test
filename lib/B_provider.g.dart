@@ -6,7 +6,7 @@ part of 'B_provider.dart';
 // RiverpodGenerator
 // **************************************************************************
 
-String _$bProviderHash() => r'cbe62929df358f31a0761f8079e0fcb47fc721ea';
+String _$bProviderHash() => r'cc19c4ea3338aac89d338f5815a14c65034bbb35';
 
 /// See also [BProvider].
 @ProviderFor(BProvider)

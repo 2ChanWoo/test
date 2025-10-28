@@ -6,6 +6,14 @@ part 'B_provider.g.dart';
 class BProvider extends _$BProvider {
   @override
   int build() {
+    print("BProvider build()");
+    ref.onDispose(() {
+      print("BProvider disposed");
+    });
     return 0;
+  }
+
+  void increment() {
+    state++;
   }
 }
