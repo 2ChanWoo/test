@@ -30,6 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  file_picker: ^6.2.0
 
 
   # The following adds the Cupertino Icons font to your application.
@@ -38,7 +39,6 @@ dependencies:
   flutter_riverpod: ^2.6.1
   riverpod_annotation: ^2.6.1
   nordic_dfu: ^7.0.0
-  file_picker: ^8.0.2
 
 dev_dependencies:
   flutter_test:
