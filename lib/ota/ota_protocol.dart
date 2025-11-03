@@ -10,6 +10,9 @@ const int APP_TO_DEVICE_FOOTER = 0x1B;
 const int DEVICE_TO_APP_HEADER = 0x2C;
 const int DEVICE_TO_APP_FOOTER = 0x2D;
 
+// 수신받는 데이터 길이
+const int RECEIVE_BYTE_LEGNTH = 8;
+
 // App -> Device 모드 정의
 enum OtaMode {
   enterBootMode(0x01),
@@ -57,7 +60,7 @@ class DeviceResponse {
   });
 
   factory DeviceResponse.fromBytes(Uint8List bytes) {
-    if (bytes.length != 8 ||
+    if (bytes.length != RECEIVE_BYTE_LEGNTH ||
         bytes.first != DEVICE_TO_APP_HEADER ||
         bytes.last != DEVICE_TO_APP_FOOTER) {
       throw const FormatException('Invalid response packet');
@@ -89,7 +92,10 @@ class PacketBuilder {
     final payload = <int>[];
     payload.add(APP_TO_DEVICE_HEADER);
     payload.add(mode.value);
+
+    /// 실제 데이터
     payload.addAll(data);
+    /// --- ----
 
     // 체크섬 계산 (헤더부터 데이터 끝까지)
     final checksum = payload.reduce((sum, byte) => sum + byte) & 0xFF;
