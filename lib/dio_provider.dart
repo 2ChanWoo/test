@@ -1,18 +1,22 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:riverpod_test/api_exception.dart';
 import 'package:riverpod_test/auth_repository.dart';
 
-// Dio 인스턴스를 제공하는 Provider
-final dioProvider = Provider<Dio>((ref) {
+part 'dio_provider.g.dart';
+
+@Riverpod(keepAlive: true)
+Dio dio(Ref ref) {
   final dio = Dio();
 
   // 기본 옵션 설정
   dio.options = BaseOptions(
     baseUrl: 'https://jsonplaceholder.typicode.com',
     connectTimeout: const Duration(seconds: 5),
-    receiveTimeout: const Duration(seconds: 3),
+    receiveTimeout: const Duration(seconds: 10),
+    sendTimeout: const Duration(seconds: 3),
     contentType: 'application/json',
   );
 
@@ -41,8 +45,7 @@ final dioProvider = Provider<Dio>((ref) {
             print('Token expired. Refreshing token...');
             // 1. 토큰 재발급 요청
             final authRepo = ref.read(authRepositoryProvider);
-            final newAccessToken = await authRepo.refreshToken();
-
+            final newAccessToken = await authRepo.refresh();
             // 2. 재발급 받은 토큰으로 원래 요청 재시도
             final options = e.requestOptions;
             options.headers['Authorization'] = 'Bearer $newAccessToken';
@@ -76,4 +79,4 @@ final dioProvider = Provider<Dio>((ref) {
   }
 
   return dio;
-});
+}

@@ -7,24 +7,26 @@ class ApiException implements Exception {
 
   ApiException(this.message, {this.statusCode});
 
-  factory ApiException.fromDioError(DioError dioError) {
+  factory ApiException.fromDioError(DioException dioError) {
     switch (dioError.type) {
-      case DioErrorType.cancel:
+      case DioExceptionType.cancel:
         return ApiException("Request to API server was cancelled");
-      case DioErrorType.connectionTimeout:
+      case DioExceptionType.connectionTimeout:
         return ApiException("Connection timeout with API server");
-      case DioErrorType.receiveTimeout:
+      case DioExceptionType.receiveTimeout:
         return ApiException("Receive timeout in connection with API server");
-      case DioErrorType.sendTimeout:
+      case DioExceptionType.sendTimeout:
         return ApiException("Send timeout in connection with API server");
-      case DioErrorType.badResponse:
+      case DioExceptionType.badResponse:
         return ApiException.fromResponse(dioError.response);
-      case DioErrorType.unknown:
+      case DioExceptionType.unknown:
         if (dioError.message?.contains("SocketException") ?? false) {
           return ApiException("No Internet connection");
         }
         return ApiException("Unexpected error occurred");
       default:
+      // case DioExceptionType.badCertificate:
+      // case DioExceptionType.connectionError:
         return ApiException("Something went wrong");
     }
   }
