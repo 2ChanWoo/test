@@ -1,6 +1,10 @@
+
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
-import 'package:file_picker/file_picker.dart';
+import 'package:crypto/crypto.dart';
+import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:riverpod_test/ota/bluetooth_service.dart';
 import 'package:riverpod_test/ota/ota_protocol.dart';
@@ -22,13 +26,26 @@ class OtaState {
   }
 }
 
+// 서버 응답을 위한 모델
+class FirmwareInfo {
+  final String latestVersion;
+  final String minAppVersion;
+  final String firmwareUrl;
+  final String checksum; // SHA-256
+
+  FirmwareInfo.fromJson(Map<String, dynamic> json)
+      : latestVersion = json['latest_version'],
+        minAppVersion = json['min_app_version'],
+        firmwareUrl = json['firmware_url'],
+        checksum = json['checksum'];
+}
+
 @riverpod
 class OtaUpdate extends _$OtaUpdate {
   final _btService = BluetoothService();
 
   @override
   FutureOr<OtaState> build() {
-    // 초기 상태
     return OtaState(message: 'Ready to update');
   }
 
@@ -37,14 +54,12 @@ class OtaUpdate extends _$OtaUpdate {
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() async {
       try {
-        final firmware = await _pickFirmwareFile();
-        if (firmware == null) {
-          return OtaState(message: 'Firmware file not selected.');
-        }
+        final firmwareInfo = await _checkServerForUpdate();
+        final firmware = await _downloadFirmware(firmwareInfo);
 
         await _connectToDevice(deviceId);
         await _enterBootMode();
-        await _checkVersion();
+        await _checkVersion(); // 실제로는 여기서 펌웨어 버전 비교 로직이 들어갈 수 있습니다.
         await _sendFirmwareSize(firmware);
         await _initializeMemory();
         await _writeFirmwareData(firmware);
@@ -57,7 +72,10 @@ class OtaUpdate extends _$OtaUpdate {
 
       } catch (e) {
         print('OTA Error: $e');
-        await _btService.disconnect();
+        // disconnect는 각 단계의 에러 핸들링에서 처리하거나 여기서 일괄 처리
+        if (_btService.isConnected) await _btService.disconnect();
+        // UI에 에러 메시지를 명확히 전달하기 위해 OtaState를 반환할 수도 있습니다.
+        // 예: return OtaState(message: e.toString());
         rethrow;
       }
     });
@@ -65,14 +83,70 @@ class OtaUpdate extends _$OtaUpdate {
 
   // 각 단계를 처리하는 내부 (private) 메소드들
 
-  Future<Uint8List?> _pickFirmwareFile() async {
-    state = AsyncValue.data(OtaState(message: 'Selecting firmware file...'));
-    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['bin']);
-    if (result != null && result.files.single.bytes != null) {
-      return result.files.single.bytes;
+  Future<FirmwareInfo> _checkServerForUpdate() async {
+    state = AsyncValue.data(OtaState(message: 'Checking for updates...'));
+
+    // TODO: 실제 서버의 버전 체크 URL로 변경해야 합니다.
+    final url = Uri.parse('https://your-server.com/api/firmware/latest');
+    final response = await http.get(url).timeout(const Duration(seconds: 10));
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to check for updates. Status: ${response.statusCode}');
     }
-    return null;
+
+    final firmwareInfo = FirmwareInfo.fromJson(json.decode(response.body));
+
+    // 앱 최소 버전 체크
+    final packageInfo = await PackageInfo.fromPlatform();
+    final currentAppVersion = packageInfo.version;
+    if (_isVersionLessThan(currentAppVersion, firmwareInfo.minAppVersion)) {
+      throw Exception('Please update the app to version ${firmwareInfo.minAppVersion} or higher to proceed.');
+    }
+
+    // TODO: 현재 장치의 펌웨어 버전과 서버의 최신 버전을 비교하여 이미 최신 버전이면 중단하는 로직 추가
+    // if (current_firmware_version >= firmwareInfo.latestVersion) {
+    //   throw Exception('Firmware is already up to date.');
+    // }
+
+    return firmwareInfo;
   }
+
+  Future<Uint8List> _downloadFirmware(FirmwareInfo info) async {
+    state = AsyncValue.data(OtaState(message: 'Downloading firmware v${info.latestVersion}...'));
+
+    final response = await http.get(Uri.parse(info.firmwareUrl));
+    if (response.statusCode != 200) {
+      throw Exception('Failed to download firmware file.');
+    }
+
+    final bytes = response.bodyBytes;
+
+    // 체크섬 검증
+    final digest = sha256.convert(bytes);
+    if (digest.toString() != info.checksum) {
+      throw Exception('Firmware integrity check failed. File may be corrupted.');
+    }
+
+    state = AsyncValue.data(OtaState(message: 'Download complete!'));
+    return bytes;
+  }
+
+  // 버전 문자열 비교 함수 (예: "1.2.0" < "1.2.1")
+  bool _isVersionLessThan(String v1, String v2) {
+    final parts1 = v1.split('.').map(int.parse).toList();
+    final parts2 = v2.split('.').map(int.parse).toList();
+    final length = parts1.length > parts2.length ? parts1.length : parts2.length;
+
+    for (int i = 0; i < length; i++) {
+      final p1 = i < parts1.length ? parts1[i] : 0;
+      final p2 = i < parts2.length ? parts2[i] : 0;
+      if (p1 < p2) return true;
+      if (p1 > p2) return false;
+    }
+    return false;
+  }
+
+  // --- 아래는 기존의 블루투스 통신 관련 메소드들 (변경 없음) ---
 
   Future<void> _connectToDevice(String deviceId) async {
     state = AsyncValue.data(OtaState(message: 'Connecting to device...'));
@@ -102,7 +176,7 @@ class OtaUpdate extends _$OtaUpdate {
   }
 
   Future<void> _writeFirmwareData(Uint8List firmware) async {
-    const chunkSize = 16; // n-1, n-2 바이트 제외한 순수 데이터 크기. 실제 MTU에 맞춰 조절
+    const chunkSize = 16; // 실제 MTU에 맞춰 조절
     final totalChunks = (firmware.length / chunkSize).ceil();
 
     for (int i = 0; i < totalChunks; i++) {
@@ -139,8 +213,12 @@ class OtaUpdate extends _$OtaUpdate {
 
   Future<void> _reconnect(String deviceId) async {
     state = AsyncValue.data(OtaState(message: 'Update complete! Reconnecting...', progress: 1.0));
-    // TODO: 장치가 재부팅된 후 다시 연결하는 로직 구현
     await Future.delayed(const Duration(seconds: 5)); // 재부팅 시간 대기
     await _btService.connect(deviceId);
   }
+}
+
+// BluetoothService 클래스에 isConnected와 같은 상태 getter를 추가하면 좋습니다.
+extension BluetoothServiceState on BluetoothService {
+  bool get isConnected => _connectedDevice != null;
 }
