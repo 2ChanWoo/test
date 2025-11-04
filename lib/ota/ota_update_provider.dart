@@ -1,10 +1,6 @@
-
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
-import 'package:crypto/crypto.dart';
-import 'package:http/http.dart' as http;
-import 'package:package_info_plus/package_info_plus.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:riverpod_test/ota/bluetooth_service.dart';
 import 'package:riverpod_test/ota/ota_protocol.dart';
@@ -26,20 +22,6 @@ class OtaState {
   }
 }
 
-// 서버 응답을 위한 모델
-class FirmwareInfo {
-  final String latestVersion;
-  final String minAppVersion;
-  final String firmwareUrl;
-  final String checksum; // SHA-256
-
-  FirmwareInfo.fromJson(Map<String, dynamic> json)
-      : latestVersion = json['latest_version'],
-        minAppVersion = json['min_app_version'],
-        firmwareUrl = json['firmware_url'],
-        checksum = json['checksum'];
-}
-
 @riverpod
 class OtaUpdate extends _$OtaUpdate {
   final _btService = BluetoothService();
@@ -54,12 +36,11 @@ class OtaUpdate extends _$OtaUpdate {
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() async {
       try {
-        final firmwareInfo = await _checkServerForUpdate();
-        final firmware = await _downloadFirmware(firmwareInfo);
+        final firmware = await _loadFirmwareFromAssets();
 
         await _connectToDevice(deviceId);
         await _enterBootMode();
-        await _checkVersion(); // 실제로는 여기서 펌웨어 버전 비교 로직이 들어갈 수 있습니다.
+        await _checkVersion();
         await _sendFirmwareSize(firmware);
         await _initializeMemory();
         await _writeFirmwareData(firmware);
@@ -72,10 +53,9 @@ class OtaUpdate extends _$OtaUpdate {
 
       } catch (e) {
         print('OTA Error: $e');
-        // disconnect는 각 단계의 에러 핸들링에서 처리하거나 여기서 일괄 처리
-        if (_btService.isConnected) await _btService.disconnect();
-        // UI에 에러 메시지를 명확히 전달하기 위해 OtaState를 반환할 수도 있습니다.
-        // 예: return OtaState(message: e.toString());
+
+        // 안정적인 실패 후를 위해 연결 해제? 또는 연결 유지 후 재시도 버튼으로?
+        // if (_btService.isConnected) await _btService.disconnect();
         rethrow;
       }
     });
@@ -83,70 +63,20 @@ class OtaUpdate extends _$OtaUpdate {
 
   // 각 단계를 처리하는 내부 (private) 메소드들
 
-  Future<FirmwareInfo> _checkServerForUpdate() async {
-    state = AsyncValue.data(OtaState(message: 'Checking for updates...'));
-
-    // TODO: 실제 서버의 버전 체크 URL로 변경해야 합니다.
-    final url = Uri.parse('https://your-server.com/api/firmware/latest');
-    final response = await http.get(url).timeout(const Duration(seconds: 10));
-
-    if (response.statusCode != 200) {
-      throw Exception('Failed to check for updates. Status: ${response.statusCode}');
+  Future<Uint8List> _loadFirmwareFromAssets() async {
+    state = AsyncValue.data(OtaState(message: 'Loading firmware from assets...'));
+    // TODO: 'update.bin'을 실제 펌웨어 파일 이름으로 변경해야 합니다.
+    const firmwarePath = 'assets/firmware/update.bin';
+    try {
+      final byteData = await rootBundle.load(firmwarePath);
+      state = AsyncValue.data(OtaState(message: 'Firmware loaded!'));
+      return byteData.buffer.asUint8List();
+    } catch (e) {
+      throw Exception('Failed to load firmware file from assets.');
     }
-
-    final firmwareInfo = FirmwareInfo.fromJson(json.decode(response.body));
-
-    // 앱 최소 버전 체크
-    final packageInfo = await PackageInfo.fromPlatform();
-    final currentAppVersion = packageInfo.version;
-    if (_isVersionLessThan(currentAppVersion, firmwareInfo.minAppVersion)) {
-      throw Exception('Please update the app to version ${firmwareInfo.minAppVersion} or higher to proceed.');
-    }
-
-    // TODO: 현재 장치의 펌웨어 버전과 서버의 최신 버전을 비교하여 이미 최신 버전이면 중단하는 로직 추가
-    // if (current_firmware_version >= firmwareInfo.latestVersion) {
-    //   throw Exception('Firmware is already up to date.');
-    // }
-
-    return firmwareInfo;
   }
 
-  Future<Uint8List> _downloadFirmware(FirmwareInfo info) async {
-    state = AsyncValue.data(OtaState(message: 'Downloading firmware v${info.latestVersion}...'));
-
-    final response = await http.get(Uri.parse(info.firmwareUrl));
-    if (response.statusCode != 200) {
-      throw Exception('Failed to download firmware file.');
-    }
-
-    final bytes = response.bodyBytes;
-
-    // 체크섬 검증
-    final digest = sha256.convert(bytes);
-    if (digest.toString() != info.checksum) {
-      throw Exception('Firmware integrity check failed. File may be corrupted.');
-    }
-
-    state = AsyncValue.data(OtaState(message: 'Download complete!'));
-    return bytes;
-  }
-
-  // 버전 문자열 비교 함수 (예: "1.2.0" < "1.2.1")
-  bool _isVersionLessThan(String v1, String v2) {
-    final parts1 = v1.split('.').map(int.parse).toList();
-    final parts2 = v2.split('.').map(int.parse).toList();
-    final length = parts1.length > parts2.length ? parts1.length : parts2.length;
-
-    for (int i = 0; i < length; i++) {
-      final p1 = i < parts1.length ? parts1[i] : 0;
-      final p2 = i < parts2.length ? parts2[i] : 0;
-      if (p1 < p2) return true;
-      if (p1 > p2) return false;
-    }
-    return false;
-  }
-
-  // --- 아래는 기존의 블루투스 통신 관련 메소드들 (변경 없음) ---
+  // --- 아래는 블루투스 통신 관련 메소드들 (변경 없음) ---
 
   Future<void> _connectToDevice(String deviceId) async {
     state = AsyncValue.data(OtaState(message: 'Connecting to device...'));
@@ -216,9 +146,4 @@ class OtaUpdate extends _$OtaUpdate {
     await Future.delayed(const Duration(seconds: 5)); // 재부팅 시간 대기
     await _btService.connect(deviceId);
   }
-}
-
-// BluetoothService 클래스에 isConnected와 같은 상태 getter를 추가하면 좋습니다.
-extension BluetoothServiceState on BluetoothService {
-  bool get isConnected => _connectedDevice != null;
 }
