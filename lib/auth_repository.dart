@@ -1,13 +1,3 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:riverpod_annotation/riverpod_annotation.dart';
-
-part 'auth_repository.g.dart';
-
-@riverpod
-AuthRepository authRepository(Ref ref) {
-  return AuthRepository();
-}
-
 class AuthRepository {
   String? _accessToken = 'my-secret-access-token'; // 초기 더미 토큰
   String? _refreshToken = 'my-secret-refresh-token';

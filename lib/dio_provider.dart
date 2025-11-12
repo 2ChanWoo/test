@@ -1,14 +1,10 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:riverpod_test/api_exception.dart';
 import 'package:riverpod_test/auth_repository.dart';
+import 'package:riverpod_test/service_locator.dart'; // Import getIt
 
-part 'dio_provider.g.dart';
-
-@Riverpod(keepAlive: true)
-Dio dio(Ref ref) {
+Dio createAndConfigureDio() {
   final dio = Dio();
 
   // 기본 옵션 설정
@@ -25,7 +21,8 @@ Dio dio(Ref ref) {
     QueuedInterceptorsWrapper(
       onRequest: (options, handler) async {
         // AuthRepository에서 액세스 토큰을 가져옵니다.
-        final accessToken = await ref.read(authRepositoryProvider).accessToken;
+        // getIt을 사용하여 AuthRepository 인스턴스를 가져옵니다.
+        final accessToken = await getIt<AuthRepository>().accessToken;
         if (accessToken != null) {
           options.headers['Authorization'] = 'Bearer $accessToken';
         }
@@ -36,7 +33,7 @@ Dio dio(Ref ref) {
         print('RESPONSE[${response.statusCode}] => PATH: ${response.requestOptions.path}');
         return handler.next(response);
       },
-      onError: (DioError e, handler) async {
+      onError: (DioException e, handler) async {
         print('ERROR[${e.response?.statusCode}] => PATH: ${e.requestOptions.path}');
         
         // 401 에러 (토큰 만료) 처리
@@ -44,7 +41,8 @@ Dio dio(Ref ref) {
           try {
             print('Token expired. Refreshing token...');
             // 1. 토큰 재발급 요청
-            final authRepo = ref.read(authRepositoryProvider);
+            // getIt을 사용하여 AuthRepository 인스턴스를 가져옵니다.
+            final authRepo = getIt<AuthRepository>();
             final newAccessToken = await authRepo.refresh();
             // 2. 재발급 받은 토큰으로 원래 요청 재시도
             final options = e.requestOptions;
