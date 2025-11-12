@@ -106,7 +106,7 @@ class OtaUpdate extends _$OtaUpdate {
   }
 
   Future<void> _writeFirmwareData(Uint8List firmware) async {
-    const chunkSize = 16; // 실제 MTU에 맞춰 조절
+    const chunkSize = WRITE_DATA_PAYLOAD_LENGTH; // 프로토콜의 데이터 페이로드 길이와 일치
     final totalChunks = (firmware.length / chunkSize).ceil();
 
     for (int i = 0; i < totalChunks; i++) {

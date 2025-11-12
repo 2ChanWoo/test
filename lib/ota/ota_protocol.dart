@@ -13,6 +13,9 @@ const int DEVICE_TO_APP_FOOTER = 0x2D;
 // 수신받는 데이터 길이
 const int RECEIVE_BYTE_LEGNTH = 8;
 
+// 데이터 송신 부분의 고정 길이
+const int WRITE_DATA_PAYLOAD_LENGTH = 64;
+
 // App -> Device 모드 정의
 enum OtaMode {
   enterBootMode(0x01),
@@ -89,15 +92,23 @@ class DeviceResponse {
 /// App -> Device 패킷을 생성하는 헬퍼 클래스
 class PacketBuilder {
   static Uint8List create(OtaMode mode, {List<int> data = const []}) {
+    if (data.length > WRITE_DATA_PAYLOAD_LENGTH) {
+      throw ArgumentError('Data length (${data.length}) exceeds maximum allowed payload length ($WRITE_DATA_PAYLOAD_LENGTH) for OTA packet.');
+    }
+
     final payload = <int>[];
     payload.add(APP_TO_DEVICE_HEADER);
     payload.add(mode.value);
 
-    /// 실제 데이터
+    // 실제 데이터 추가 및 패딩
     payload.addAll(data);
+    if (data.length < WRITE_DATA_PAYLOAD_LENGTH) {
+      // 남은 길이를 0x00으로 패딩
+      payload.addAll(List.filled(WRITE_DATA_PAYLOAD_LENGTH - data.length, 0x00));
+    }
     /// --- ----
 
-    // 체크섬 계산 (헤더부터 데이터 끝까지)
+    // 체크섬 계산 (헤더, 모드, 데이터 전체)
     final checksum = payload.reduce((sum, byte) => sum + byte) & 0xFF;
     payload.add(checksum);
     payload.add(APP_TO_DEVICE_FOOTER);
